@@ -383,7 +383,7 @@ function setupMaterials(root) {
 // ─── Model loading ────────────────────────────────────────────────────────────
 
 function loadModel() {
-  return new GLTFLoader().loadAsync('/assets/models/aquarium/aquarium.gltf').then(gltf => {
+  return new GLTFLoader().loadAsync('./assets/models/aquarium/aquarium.gltf').then(gltf => {
     const root = gltf.scene
     setupMaterials(root)
 
