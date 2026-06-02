@@ -28,20 +28,20 @@ const scene  = new THREE.Scene()
 scene.background = new THREE.Color(0x000000)
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100)
-camera.position.set(0, 0.5, 3)
+camera.position.set(-0.4, 0.6, 3.8)
 
 // ─── Lights ──────────────────────────────────────────────────────────────────
 
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
 scene.add(ambientLight)
 
-// Aquarium point light — positioned at iMac center after model load
-const aquaLight = new THREE.PointLight(0x00d4ff, 10, 2) // blue color, high intensity, short range
+// positions are updated at load time to match the iMac center and lava lamp positions, respectively
+const aquaLight = new THREE.PointLight(0x00d4ff, 10, 2) // blue color
 aquaLight.castShadow = true
 aquaLight.shadow.mapSize.set(512, 512)
 scene.add(aquaLight)
 
-const lavaLampLight = new THREE.PointLight(0xe66100, 10, 3) // warm orange, high intensity, short range
+const lavaLampLight = new THREE.PointLight(0xe66100, 10, 3) // warm orange
 lavaLampLight.castShadow = true
 lavaLampLight.shadow.mapSize.set(512, 512)
 scene.add(lavaLampLight)
@@ -64,11 +64,10 @@ const WORLD_Y  = new THREE.Vector3(0, 1, 0)
 //
 // Each fish has its own independent state: position, direction, ellipse angle,
 // animation mixer and click target.
-//
 // noseOffsetY corrects the model-specific mismatch between the mesh's local
 // forward axis and the swimming direction:
-//   CLOWNFISH  → Math.PI / 2  (default)
-//   Blue Tang  → 0
+//   Clown fish: Math.PI / 2
+//   Blue Tang: 0
 
 function makeFishState(group, noseOffsetY = Math.PI / 2) {
   return {
@@ -109,18 +108,16 @@ const dragOffset = new THREE.Vector3()
 
 let imacMesh      = null
 let keyboardMesh  = null
-let mouseMesh     = null   // the 3D mouse object — toggles light/bloom on click
+let mouseMesh     = null   // the 3D mouse object, toggles light/bloom on click
 
-const cds            = {}   // { clown: Mesh, blue: Mesh }  — the draggable CDs
+const cds            = {}   // clown or blue CD meshes, populated in loadModel()
 const cdOrigins      = {}   // initial positions saved at load time
 const cdOriginQuats  = {}   // initial quaternions saved at load time
 
-let dragging   = null   // 'clown' | 'blue' | null
-let activeFish = null   // 'clown' | 'blue' | null
+let dragging   = null   
+let activeFish = null   
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
-// THREE.Audio attaches to the camera via an AudioListener.
-// The AudioLoader handles decoding; play/pause is managed by the Audio object.
 
 const audioListener = new THREE.AudioListener()
 camera.add(audioListener)
@@ -163,7 +160,7 @@ function getMeshesByName(...substrings) {
 // ─── Light & bloom toggle ────────────────────────────────────────────────────
 
 const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight), 0.8, 0.4, 0.2
+  new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.4, 0.1
 )
 
 function toggleAquaLight() {
@@ -190,13 +187,13 @@ canvas.addEventListener('mousedown', e => {
     // Face the CD toward the camera while dragging
     const camDir = new THREE.Vector3()
     camera.getWorldDirection(camDir)
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), camDir.negate())
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), camDir.negate())
     canvas.style.cursor = 'grabbing'
     e.preventDefault()
     return
   }
 
-  // 2. Eject fish by clicking the keyboard keys
+  // Eject fish by clicking the keyboard keys
   if (keyboardMesh && activeFish) {
     if (raycaster.intersectObject(keyboardMesh, false).length > 0) {
       ejectFish(activeFish)
@@ -204,12 +201,7 @@ canvas.addEventListener('mousedown', e => {
     }
   }
 
-  const allHits = raycaster.intersectObjects(
-    [...scene.children].flatMap(o => { const m = []; o.traverse(x => { if (x.isMesh) m.push(x) }); return m }), false
-  )
-  if (allHits.length > 0) console.log('Hit:', allHits[0].object.name)
-
-  // 3. Toggle aquarium light by clicking the mouse object
+  // Toggle aquarium light by clicking the mouse object
   if (mouseMesh) {
     if (raycaster.intersectObject(mouseMesh, false).length > 0) {
       toggleAquaLight()
@@ -217,7 +209,7 @@ canvas.addEventListener('mousedown', e => {
     }
   }
 
-  // 4. Direct the active fish toward a screen click
+  // Direct the active fish toward a screen click
   if (activeFish) {
     const screenHits = raycaster.intersectObjects(
       getMeshesByName('imac', 'vetro', 'shell'), false
@@ -383,7 +375,7 @@ function setupMaterials(root) {
 // ─── Model loading ────────────────────────────────────────────────────────────
 
 function loadModel() {
-  return new GLTFLoader().loadAsync('./assets/models/aquarium/aquarium.gltf').then(gltf => {
+  return new GLTFLoader().loadAsync('/assets/models/aquarium/aquarium.gltf').then(gltf => {
     const root = gltf.scene
     setupMaterials(root)
 
@@ -395,7 +387,6 @@ function loadModel() {
 
     // Fit camera to model size
     const maxDim = Math.max(size.x, size.y, size.z)
-    camera.position.set(0, maxDim * 0.2, maxDim * 1.8)
     camera.near = maxDim * 0.01
     camera.far  = maxDim * 20
     camera.updateProjectionMatrix()
@@ -445,8 +436,8 @@ function loadModel() {
     if (clownRoot) { clownRoot.visible = false; fishStates.clown = makeFishState(clownRoot) }
     if (blueRoot)  { blueRoot.visible  = false; fishStates.blue  = makeFishState(blueRoot, 0) }
 
-    if (fishStates.clown) fishStates.clown.sound = loadAudio('clown', './assets/models/aquarium/audio/tottomori-restingsand.mp3')
-    if (fishStates.blue)  fishStates.blue.sound  = loadAudio('blue',  './assets/models/aquarium/audio/tottomori-temperatemud.mp3')
+    if (fishStates.clown) fishStates.clown.sound = loadAudio('clown', '/assets/models/aquarium/audio/tottomori-restingsand.mp3')
+    if (fishStates.blue)  fishStates.blue.sound  = loadAudio('blue',  '/assets/models/aquarium/audio/tottomori-temperatemud.mp3')
 
     // One AnimationMixer per fish on the shared root
     // (both mixers reference the same clips; each only drives its own joints)
@@ -481,12 +472,10 @@ function setupComposer() {
 function setupGUI() {
   const gui = new GUI({ title: 'Graphics Settings' })
 
-  // Ambient light
   gui.addFolder('Ambient light')
      .add({ v: 0.5 }, 'v', 0, 5, 0.1).name('Intensity')
      .onChange(v => { ambientLight.intensity = v })
 
-  // Aquarium light
   const lf = gui.addFolder('Aquarium light')
   const lp = { on: true, intensity: 10, color: '#00d4ff' }
   lf.add(lp, 'on').name('ON / OFF').onChange(v => {
@@ -500,7 +489,6 @@ function setupGUI() {
   })
   lf.addColor(lp, 'color').name('Color').onChange(v => aquaLight.color.set(v))
 
-  // Swimming parameters
   const sf = gui.addFolder('Swimming')
   sf.add(tank, 'speed',   0,    2,    0.05).name('Speed')
   sf.add(tank, 'radiusX', 0.01, 0.5,  0.01).name('Radius X')
@@ -508,7 +496,6 @@ function setupGUI() {
   sf.add({ v: 2.5 }, 'v', 0.5, 5, 0.2).name('Pause duration (s)')
      .onChange(v => { pauseDuration = v })
 
-  // Bloom
   const bf = gui.addFolder('Bloom')
   bf.add({ on: true }, 'on').name('ON / OFF').onChange(v => { bloomPass.enabled = aquaLightOn && v })
   bf.add(bloomPass, 'strength',  0, 3,   0.05).name('Strength')
@@ -573,7 +560,6 @@ function createInstructions() {
     border: 1px solid rgba(100,180,255,0.2);
     border-radius: 10px;
     padding: 14px 18px;
-    pointer-events: none;
     max-width: 280px;
   `
   panel.innerHTML = `
