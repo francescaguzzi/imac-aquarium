@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls }   from 'three/examples/jsm/controls/OrbitControls'
+import { DragControls }    from 'three/examples/jsm/controls/DragControls'
 import { GLTFLoader }      from 'three/examples/jsm/loaders/GLTFLoader'
 import { EffectComposer }  from 'three/examples/jsm/postprocessing/EffectComposer'
 import { RenderPass }      from 'three/examples/jsm/postprocessing/RenderPass'
@@ -8,7 +9,7 @@ import { ShaderPass }      from 'three/examples/jsm/postprocessing/ShaderPass'
 import { CopyShader }      from 'three/examples/jsm/shaders/CopyShader'
 import GUI                 from 'lil-gui'
 
-// ─── Renderer ────────────────────────────────────────────────────────────────
+/* ----- Renderer ----- */
 
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
@@ -22,21 +23,21 @@ document.body.style.margin   = '0'
 document.body.style.overflow = 'hidden'
 document.body.appendChild(renderer.domElement)
 
-// ─── Scene & Camera ──────────────────────────────────────────────────────────
-
 const scene  = new THREE.Scene()
 scene.background = new THREE.Color(0x000000)
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100)
 camera.position.set(-0.4, 0.6, 3.8)
 
-// ─── Lights ──────────────────────────────────────────────────────────────────
+const canvas = renderer.domElement
+
+/* ----- Lights and BloomPass ----- */
 
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
 scene.add(ambientLight)
 
 // positions are updated at load time to match the iMac center and lava lamp positions, respectively
-const aquaLight = new THREE.PointLight(0x00d4ff, 10, 2) // blue color
+const aquaLight = new THREE.PointLight(0x00d4ff, 10, 2) // blue to match imac 
 aquaLight.castShadow = true
 aquaLight.shadow.mapSize.set(512, 512)
 scene.add(aquaLight)
@@ -46,28 +47,25 @@ lavaLampLight.castShadow = true
 lavaLampLight.shadow.mapSize.set(512, 512)
 scene.add(lavaLampLight)
 
-// Base intensity used by the flicker effect.
-// Kept separate from aquaLight.intensity to avoid per-frame accumulation.
+// Base intensity used by the flicker effect
 let aquaBaseIntensity = 10
 let aquaLightOn       = true   // toggled by clicking the mouse object
 
-// ─── Fish rotation constants ──────────────────────────────────────────────────
-// Fish exported from Blender carry a native +90° rotation on the X axis.
-// We compose this with the yaw quaternion each frame so the fish always
-// stays upright while turning horizontally.
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.4, 0.1
+)
 
-const Q_NATIVE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
-const Q_YAW    = new THREE.Quaternion()
-const WORLD_Y  = new THREE.Vector3(0, 1, 0)
+function toggleAquaLight() {
+  aquaLightOn = !aquaLightOn
+  aquaLight.intensity = aquaLightOn ? aquaBaseIntensity : 0
+  bloomPass.enabled   = aquaLightOn
+}
 
-// ─── Fish state ───────────────────────────────────────────────────────────────
-//
+/* ---- Fish state management ---- */
 // Each fish has its own independent state: position, direction, ellipse angle,
-// animation mixer and click target.
+// animation mixer and click target
 // noseOffsetY corrects the model-specific mismatch between the mesh's local
-// forward axis and the swimming direction:
-//   Clown fish: Math.PI / 2
-//   Blue Tang: 0
+// forward axis and the swimming direction: clown fish (Math.PI / 2), blue fish (0)
 
 function makeFishState(group, noseOffsetY = Math.PI / 2) {
   return {
@@ -86,38 +84,43 @@ function makeFishState(group, noseOffsetY = Math.PI / 2) {
 }
 
 const fishStates = {}   // populated in loadModel(): { clown, blue }
+let activeFish = null 
 
-// ─── Tank parameters ─────────────────────────────────────────────────────────
-// centerX/Y/Z and radiusX/Z are overwritten from the "water" mesh bounding box.
+/* ---- Fish rotation constants ---- */
+// Fish exported from Blender carry a native +90° rotation on the X axis
+// We compose this with the yaw quaternion each frame so the fish always
+// stays upright while turning horizontally
+
+const Q_NATIVE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
+const Q_YAW    = new THREE.Quaternion()
+const WORLD_Y  = new THREE.Vector3(0, 1, 0)
+
+/* ------------ */
 
 const tank = {
   radiusX: 0.16, radiusZ: 0.16, speed: 0.5,
   centerX: 0.0,  centerY: 0.0,  centerZ: 0.0,
 }
 
-const ARRIVE_DIST   = 0.03   // arrival threshold (world units)
+const ARRIVE_DIST   = 0.03   // arrival threshold 
 const TURN_SPEED    = 4.0    // angular interpolation speed (approx rad/s)
 let   pauseDuration = 2.5    // seconds the fish pauses at click target
 
-// ─── Drag & drop state ───────────────────────────────────────────────────────
-
 const raycaster  = new THREE.Raycaster()
 const pointer    = new THREE.Vector2()
-const dragPlane  = new THREE.Plane()
-const dragOffset = new THREE.Vector3()
 
 let imacMesh      = null
 let keyboardMesh  = null
-let mouseMesh     = null   // the 3D mouse object, toggles light/bloom on click
+let mouseMesh     = null   
+let glassMesh     = null
+let shellMesh     = null
 
-const cds            = {}   // clown or blue CD meshes, populated in loadModel()
+const cds            = {}   
 const cdOrigins      = {}   // initial positions saved at load time
 const cdOriginQuats  = {}   // initial quaternions saved at load time
 
-let dragging   = null   
-let activeFish = null   
 
-// ─── Audio ───────────────────────────────────────────────────────────────────
+/* ----- Audio ----- */
 
 const audioListener = new THREE.AudioListener()
 camera.add(audioListener)
@@ -133,11 +136,9 @@ function loadAudio(key, url) {
   return sound
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+/* ----- Utility functions ----- */
 
-const canvas = renderer.domElement
-
-function toNDC(e) {
+function toNDC(e) { // Convert screen-space mouse coordinates to Normalized Device Coordinates for raycasting
   pointer.x =  (e.clientX / window.innerWidth)  * 2 - 1
   pointer.y = -(e.clientY / window.innerHeight)  * 2 + 1
 }
@@ -146,52 +147,11 @@ function visibleCDs() {
   return Object.values(cds).filter(c => c?.visible)
 }
 
-// Returns world-space meshes whose names include any of the given substrings.
-function getMeshesByName(...substrings) {
-  const result = []
-  scene.traverse(o => {
-    if (!o.isMesh) return
-    const n = o.name.toLowerCase()
-    if (substrings.some(s => n.includes(s))) result.push(o)
-  })
-  return result
-}
-
-// ─── Light & bloom toggle ────────────────────────────────────────────────────
-
-const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.4, 0.1
-)
-
-function toggleAquaLight() {
-  aquaLightOn = !aquaLightOn
-  aquaLight.intensity = aquaLightOn ? aquaBaseIntensity : 0
-  bloomPass.enabled   = aquaLightOn
-}
-
-// ─── Mouse events ────────────────────────────────────────────────────────────
+/* ----- Event listeners ----- */
 
 canvas.addEventListener('mousedown', e => {
   toNDC(e)
   raycaster.setFromCamera(pointer, camera)
-
-  // 1. Drag a CD
-  const cdHits = raycaster.intersectObjects(visibleCDs(), false)
-  if (cdHits.length > 0) {
-    const { object: mesh, point } = cdHits[0]
-    dragging = mesh === cds.clown ? 'clown' : 'blue'
-    dragPlane.setFromNormalAndCoplanarPoint(
-      camera.getWorldDirection(new THREE.Vector3()).negate(), point
-    )
-    dragOffset.subVectors(mesh.position, point)
-    // Face the CD toward the camera while dragging
-    const camDir = new THREE.Vector3()
-    camera.getWorldDirection(camDir)
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), camDir.negate())
-    canvas.style.cursor = 'grabbing'
-    e.preventDefault()
-    return
-  }
 
   // Eject fish by clicking the keyboard keys
   if (keyboardMesh && activeFish) {
@@ -211,9 +171,7 @@ canvas.addEventListener('mousedown', e => {
 
   // Direct the active fish toward a screen click
   if (activeFish) {
-    const screenHits = raycaster.intersectObjects(
-      getMeshesByName('imac', 'vetro', 'shell'), false
-    )
+    const screenHits = raycaster.intersectObjects([glassMesh, shellMesh])
     if (screenHits.length > 0) {
       const p  = screenHits[0].point
       const fs = fishStates[activeFish]
@@ -229,32 +187,15 @@ canvas.addEventListener('mousedown', e => {
 
 canvas.addEventListener('mousemove', e => {
   toNDC(e)
-  raycaster.setFromCamera(pointer, camera)
-  if (!dragging) {
-    const hover = raycaster.intersectObjects(visibleCDs(), false)
-    canvas.style.cursor = hover.length > 0 ? 'grab' : 'default'
-    return
-  }
-  const hit = new THREE.Vector3()
-  if (raycaster.ray.intersectPlane(dragPlane, hit)) {
-    cds[dragging].position.copy(hit.add(dragOffset))
-  }
 })
 
-canvas.addEventListener('mouseup', e => {
-  if (!dragging) return
-  toNDC(e)
-  raycaster.setFromCamera(pointer, camera)
-  if (imacMesh && raycaster.intersectObject(imacMesh, false).length > 0) {
-    insertFish(dragging)
-  } else {
-    resetCD(dragging)
-  }
-  dragging = null
-  canvas.style.cursor = 'default'
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight
+  camera.updateProjectionMatrix()
+  renderer.setSize(window.innerWidth, window.innerHeight)
 })
 
-// ─── Fish insertion & ejection ───────────────────────────────────────────────
+/* ----- Fish insertion/ejection and CD reset ----- */
 
 function insertFish(key) {
   if (activeFish && activeFish !== key) ejectFish(activeFish)
@@ -295,14 +236,14 @@ function resetCD(key) {
   cd.visible = true
 }
 
-// ─── Fish movement ────────────────────────────────────────────────────────────
+/* ----- Fish movement ----- */
 
 function updateFish(fs, delta, t) {
   if (!fs.active || !fs.group) return
 
   let desiredDir = new THREE.Vector3()
 
-  // State 1 — swim toward click target
+  // swim toward click target
   if (fs.clickTarget && fs.pauseUntil <= t) {
     const toTarget = new THREE.Vector3().subVectors(fs.clickTarget, fs.pos)
     if (Math.hypot(toTarget.x, toTarget.z) < ARRIVE_DIST) {
@@ -315,16 +256,16 @@ function updateFish(fs, delta, t) {
     }
   }
 
-  // State 2 — pause at target
+  // pause at target
   if (fs.pauseUntil > t) {
     desiredDir.copy(fs.pausedDir)
   } else if (fs.pauseUntil > 0) {
-    // Pause ended — re-sync ellipse angle to current position
+    // pause ended, re-sync ellipse angle to current position
     fs.angle      = Math.atan2(fs.pos.z - tank.centerZ, fs.pos.x - tank.centerX)
     fs.pauseUntil = 0
   }
 
-  // State 3 — free elliptical swim
+  // free elliptical swim
   if (!fs.clickTarget && fs.pauseUntil <= t) {
     fs.angle += tank.speed * delta
     fs.pos.set(
@@ -340,8 +281,7 @@ function updateFish(fs, delta, t) {
 
   fs.group.position.copy(fs.pos)
 
-  // Smoothly interpolate direction, then compose quaternions:
-  //   final = yaw(world Y) * nativeRotation(X+90°)
+  // Smoothly interpolate direction, then compose quaternions: yaw(world Y) * nativeRotation(X+90°)
   if (desiredDir.lengthSq() > 0.001) {
     fs.dir.lerp(desiredDir, Math.min(1, TURN_SPEED * delta)).normalize()
     Q_YAW.setFromAxisAngle(WORLD_Y, Math.atan2(fs.dir.x, fs.dir.z) + fs.noseOffsetY)
@@ -349,20 +289,18 @@ function updateFish(fs, delta, t) {
   }
 }
 
-// ─── Material setup ───────────────────────────────────────────────────────────
+/* ----- Material setup ----- */
 
-function setupMaterials(root) {
+function setupShadowsAndMaterials(root) {
   root.traverse(obj => {
     if (!obj.isMesh) return
     obj.castShadow    = true
     obj.receiveShadow = true
-    obj.frustumCulled = false   // prevent pop-in when moving objects via code
 
     const mat = obj.material
     if (!mat) return
     const n = (obj.name + mat.name).toLowerCase()
 
-    // Alpha cutout for the iMac screen decorations (plants, algae, etc.)
     if (n.includes('imac') || n.includes('flowerpot') || n.includes('plant')) {
       mat.transparent = true
       mat.alphaTest   = 0.1
@@ -372,24 +310,17 @@ function setupMaterials(root) {
   })
 }
 
-// ─── Model loading ────────────────────────────────────────────────────────────
+/* ----- Model loading ----- */
 
 function loadModel() {
   return new GLTFLoader().loadAsync('/assets/models/aquarium/aquarium.gltf').then(gltf => {
     const root = gltf.scene
-    setupMaterials(root)
+    setupShadowsAndMaterials(root)
 
     // Center the scene at the world origin
     const box    = new THREE.Box3().setFromObject(root)
     const center = box.getCenter(new THREE.Vector3())
-    const size   = box.getSize(new THREE.Vector3())
     root.position.sub(center)
-
-    // Fit camera to model size
-    const maxDim = Math.max(size.x, size.y, size.z)
-    camera.near = maxDim * 0.01
-    camera.far  = maxDim * 20
-    camera.updateProjectionMatrix()
 
     // Derive tank swim bounds from the "water" mesh
     const waterMesh = root.getObjectByName('water')
@@ -418,8 +349,10 @@ function loadModel() {
     imacMesh    = root.getObjectByName('imac')
     keyboardMesh   = root.getObjectByName('tasti')
     mouseMesh   = root.getObjectByName('mouse_1')   
+    glassMesh   = root.getObjectByName('vetro')
+    shellMesh   = root.getObjectByName('shell')
 
-    // CDs: save initial transform for reset
+    // save initial CD transform for reset
     cds.clown = root.getObjectByName('cd-clown')
     cds.blue  = root.getObjectByName('cd-blu')
     for (const key of ['clown', 'blue']) {
@@ -439,8 +372,6 @@ function loadModel() {
     if (fishStates.clown) fishStates.clown.sound = loadAudio('clown', '/assets/models/aquarium/audio/tottomori-restingsand.mp3')
     if (fishStates.blue)  fishStates.blue.sound  = loadAudio('blue',  '/assets/models/aquarium/audio/tottomori-temperatemud.mp3')
 
-    // One AnimationMixer per fish on the shared root
-    // (both mixers reference the same clips; each only drives its own joints)
     if (gltf.animations.length > 0) {
       for (const key of ['clown', 'blue']) {
         if (!fishStates[key]) continue
@@ -455,7 +386,7 @@ function loadModel() {
   })
 }
 
-// ─── Post-processing ─────────────────────────────────────────────────────────
+/* ----- Post-processing ----- */
 
 function setupComposer() {
   const composer = new EffectComposer(renderer)
@@ -467,7 +398,7 @@ function setupComposer() {
   return composer
 }
 
-// ─── GUI ─────────────────────────────────────────────────────────────────────
+/* ----- GUI ----- */
 
 function setupGUI() {
   const gui = new GUI({ title: 'Graphics Settings' })
@@ -478,7 +409,7 @@ function setupGUI() {
 
   const lf = gui.addFolder('Aquarium light')
   const lp = { on: true, intensity: 10, color: '#00d4ff' }
-  lf.add(lp, 'on').name('ON / OFF').onChange(v => {
+  lf.add(lp, 'on').name('Active').onChange(v => {
     aquaLightOn = v
     aquaLight.intensity = v ? aquaBaseIntensity : 0
     bloomPass.enabled   = v
@@ -497,7 +428,7 @@ function setupGUI() {
      .onChange(v => { pauseDuration = v })
 
   const bf = gui.addFolder('Bloom')
-  bf.add({ on: true }, 'on').name('ON / OFF').onChange(v => { bloomPass.enabled = aquaLightOn && v })
+  bf.add({ on: true }, 'on').name('Active').onChange(v => { bloomPass.enabled = aquaLightOn && v })
   bf.add(bloomPass, 'strength',  0, 3,   0.05).name('Strength')
   bf.add(bloomPass, 'radius',    0, 1,   0.01).name('Radius')
   bf.add(bloomPass, 'threshold', 0, 1,   0.01).name('Threshold')
@@ -505,12 +436,51 @@ function setupGUI() {
   gui.close()
 }
 
-// ─── Render loop ─────────────────────────────────────────────────────────────
+// ─── Instructions overlay ────────────────────────────────────────────────────
+ 
+function createInstructions() {
+  const panel = document.createElement('div')
+  panel.style.cssText = `
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    color: #7dd3fc;
+    font-family: 'Trebuchet MS', 'Frutiger', Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.7;
+    background: linear-gradient(135deg, rgba(15,25,50,0.8) 0%, rgba(20,40,70,0.85) 100%);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(100,180,255,0.5);
+    border-radius: 16px;
+    padding: 16px 20px;
+    max-width: 300px;
+    box-shadow: 
+      0 8px 32px rgba(0,0,0,0.5),
+      inset 1px 1px 0 rgba(100,180,255,0.3),
+      inset -1px -1px 0 rgba(0,0,0,0.4);
+    font-weight: 500;
+    letter-spacing: 0.3px;
+  `
+  panel.innerHTML = `
+    <div style="font-size:15px;font-weight:bold;margin-bottom:8px;color:#7dd3fc;">
+      .✦ ݁˖ iMac Aquarium .✦ ݁˖
+    </div>
+    <div>- Drag a CD onto the iMac to insert it</div>
+    <div>- Tap the glass to attract the fish</div>
+    <div>- Click the keyboard keys to eject the CD</div>
+    <div>- Click the mouse to toggle the aquarium light</div>
+    <div>- Enjoy the music, made by <a href="https://tottomori.com/" target="_blank" style="color:#7dd3fc;text-decoration:underline;">Tottomori</a> ! </div>
+    <div>- Made with <3 by Francesca Guzzi (<a href="https://github.com/francescaguzzi/imac-aquarium" target="_blank" style="color:#7dd3fc;text-decoration:underline;">Source code</a>) </div>
+  `
+  document.body.appendChild(panel)
+}
+
+/* ----- Render loop ----- */
 
 const clock = new THREE.Clock()
 
-function animate(composer, controls) {
-  requestAnimationFrame(() => animate(composer, controls))
+function animate(composer, orbitControls) {
+  requestAnimationFrame(() => animate(composer, orbitControls))
 
   const delta = clock.getDelta()
   const t     = clock.elapsedTime
@@ -524,77 +494,47 @@ function animate(composer, controls) {
   if (fishStates.clown) updateFish(fishStates.clown, delta, t)
   if (fishStates.blue)  updateFish(fishStates.blue,  delta, t)
 
-  // Flicker effect — only when the light is on
+  // Flicker effect for aquarium light
   aquaLight.intensity = aquaLightOn
     ? aquaBaseIntensity + Math.sin(t * 5.1) * 0.3 + Math.sin(t * 2.7) * 0.15
     : 0
 
-  controls.update()
+  orbitControls.update()
   composer.render()
 }
 
-// ─── Resize ──────────────────────────────────────────────────────────────────
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight
-  camera.updateProjectionMatrix()
-  renderer.setSize(window.innerWidth, window.innerHeight)
-})
-
-// ─── Bootstrap ───────────────────────────────────────────────────────────────
-
-// ─── Instructions overlay ────────────────────────────────────────────────────
- 
-function createInstructions() {
-  const panel = document.createElement('div')
-  panel.style.cssText = `
-    position: absolute;
-    bottom: 24px;
-    left: 24px;
-    color: #c8e6ff;
-    font-family: 'Courier New', monospace;
-    font-size: 13px;
-    line-height: 1.8;
-    background: rgba(0,0,0,0.55);
-    backdrop-filter: blur(6px);
-    border: 1px solid rgba(100,180,255,0.2);
-    border-radius: 10px;
-    padding: 14px 18px;
-    max-width: 280px;
-  `
-  panel.innerHTML = `
-    <div style="font-size:15px;font-weight:bold;margin-bottom:8px;color:#7dd3fc;">
-      🐠 iMac Aquarium
-    </div>
-    <div>- <b>Drag</b> a CD onto the iMac<br>&nbsp;&nbsp;&nbsp;&nbsp;to insert it</div>
-    <div>- <b>Tap</b> the glass to<br>&nbsp;&nbsp;&nbsp;&nbsp;attract the fish</div>
-    <div>- <b>Click</b> the keyboard keys<br>&nbsp;&nbsp;&nbsp;&nbsp;to eject the CD</div>
-    <div>- <b>Click</b> the mouse to<br>&nbsp;&nbsp;&nbsp;&nbsp;toggle the aquarium light</div>
-    <div>- <b>Drag</b> to orbit · <b>Scroll</b> to zoom</div>
-
-    <div> Enjoy the music, made with love by <a href="https://tottomori.com/" target="_blank" style="color:#7dd3fc;text-decoration:underline;">Tottomori</a> <3 </div>
-  `
-  document.body.appendChild(panel)
-}
-
+/* ----- Bootstrap and Controls ----- */
 
 loadModel().then(root => {
   scene.add(root)
 
-  const controls = new OrbitControls(camera, renderer.domElement)
-  controls.enableDamping = true
-  controls.dampingFactor = 0.05
+  const orbitControls = new OrbitControls(camera, renderer.domElement)
 
-  // Disable orbit while dragging a CD
-  canvas.addEventListener('mousedown', e => {
-    toNDC(e)
-    raycaster.setFromCamera(pointer, camera)
-    if (raycaster.intersectObjects(visibleCDs(), false).length > 0)
-      controls.enabled = false
+  const dragControls = new DragControls(visibleCDs(), camera, renderer.domElement)
+
+  dragControls.addEventListener('dragstart', e => {
+    orbitControls.enabled = false
+    const camDir = new THREE.Vector3()
+    camera.getWorldDirection(camDir)
+    e.object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), camDir.negate())
   })
-  canvas.addEventListener('mouseup', () => { controls.enabled = true })
+
+  dragControls.addEventListener('dragend', e => {
+    orbitControls.enabled = true
+
+    raycaster.setFromCamera(pointer, camera)
+    const hits = raycaster.intersectObject(imacMesh, false)
+
+    const key = e.object === cds.clown ? 'clown' : 'blue'
+    if (hits.length > 0) {
+      insertFish(key)
+    } else {
+      resetCD(key)
+    }
+  })
 
   createInstructions()
   setupGUI()
-  animate(setupComposer(), controls)
+  animate(setupComposer(), orbitControls)
+
 }).catch(err => console.error('Model load error:', err))
