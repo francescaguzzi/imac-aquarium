@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="author" content="Francesca Guzzi" />
+    <title>Relazione di Computer Graphics Modulo 2</title>
+
+    <style>
+        body {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 12pt;
+            line-height: 1.75;
+            color: #111;
+            background: #fff;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 3rem 2rem 5rem;
+        }
+        header {
+            border-bottom: 1px solid #aaa;
+            padding-bottom: 2rem;
+            margin-bottom: 2rem;
+        }
+        header h1 {
+            font-size: 22pt;
+            margin: 0 0 0.3rem;
+        }
+        header p.subtitle {
+            font-size: 12pt;
+            margin: 0 0 1.5rem;
+        }
+
+        nav {
+            margin-bottom: 2rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid #aaa;
+        }
+
+        a {
+            color: #111;
+            text-decoration: none;
+        }
+        a.hover { text-decoration: underline; }
+
+        section {
+            margin-bottom: 2.5rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid #ddd;
+        }
+        section:last-of-type { border-bottom: none; }
+        h2 {
+            font-size: 14pt;
+            margin: 0 0 1rem;
+        }
+        h3 {
+            font-size: 12pt;
+            font-style: italic;
+            margin: 1.75rem 0 0.5rem;
+            font-weight: bold;
+        }
+
+        p { margin: 0 0 0.85rem; }
+        p:last-child { margin-bottom: 0; }
+
+        code {
+            font-family: "Courier New", monospace;
+            font-size: 10pt;
+            background: #f4f4f4;
+            color: #1c612d;
+            padding: 0.1rem 0.3rem;
+        }
+
+        pre {
+            font-family: "Courier New", monospace;
+            font-size: 9.5pt;
+            background: #f4f4f4;
+            padding: 0.75rem 1rem;
+            margin: 1rem 0;
+            overflow-x: auto;
+            line-height: 1.5;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <header id="top">
+        <h1>Report Computer Graphics Modulo 2</h1>
+        <p class="subtitle">Scena 3D interattiva sviluppata in Three.js</p>
+
+            <div><span>Autrice:</span> Francesca Guzzi</div>
+            <div><span>Matricola:</span> 0001195122</div>
+            <div><span>Docente:</span> Prof. Serena Morigi</div>
+    </header>
+
+    <nav id="indice">
+        <h2>Indice</h2>
+        <ol>
+            <li><a href="#introduzione">Introduzione</a></li>
+            <li><a href="#gltf">Caricamento GLTF e Asset</a></li>
+            <li><a href="#pesci">Movimento dei Pesci e Animazioni</a></li>
+            <li><a href="#interazione">Interazione Utente</a></li>
+            <li><a href="#illuminazione">Illuminazione e Post-Processing</a></li>
+            <li><a href="#riferimenti">Riferimenti</a></li>
+        </ol>
+    </nav>
+
+    <!-- 1 -->
+    <section id="introduzione">
+        <h2>1. Introduzione</h2>
+
+        <p>
+            L'applicazione interattiva "iMac Aquarium", interamente sviluppata in Three.js, prende ispirazione dall'estetica
+            tecnologica degli anni '90 per creare una piccola esperienza musicale e visivamente coinvolgente. 
+            
+            <img src="images/screen-complete.png" style="max-width: 100%; margin-top: 0.5rem;" />
+        </p>
+
+        <p>
+            La scena rappresenta un iMac G3 trasformato in acquario, accompagnato su una scrivania da diversi oggetti decorativi
+            come una lava lamp animata, una pila di CD, una tazza di caffè, un walkman ed una pianta ornamentale. L'utente può interagire con la scena
+            trascinando due CD decorati all'interno del computer per attivare differenti pesci virtuali e contenuti audio associati.
+
+            <img src="images/screen-cd.png" style="max-width: 100%; margin-top: 0.5rem;" />
+        </p>
+
+        <p> 
+            Il progetto è stato realizzato partendo da un modello 3D dell'iMac G3 scaricato da SketchFab, che è stato poi modificato in Blender 
+            per adattarlo alle esigenze del progetto: sono stati aggiunti i modelli dei pesci, della lava lamp e degli altri oggetti decorativi. 
+            La scena è illuminata da due fonti distinte di luce: una luce puntiforme di colore azzurro centrata nel modello dell'iMac ed una luce
+            puntiforme arancione posizionata all'interno della lava lamp. Lo shader <em>Unreal Bloom</em> è stato applicato alla scena per esaltare gli effetti 
+            di luce e creare un'atmosfera più suggestiva, in linea con l'estetica del progetto.
+
+            <img src="images/screen-blue.png" style="max-width: 100%; margin-top: 0.5rem;" />
+        </p>
+    </section>
+
+    <!-- 2 -->
+    <section id="gltf">
+        <h2>2. Caricamento GLTF e Asset</h2>
+        <p>
+            L'intera ambientazione viene caricata da un file GLTF contenente sia gli elementi statici sia gli oggetti interattivi mediante <code>GLTFLoader</code>. 
+            Durante il caricamento vengono identificati e memorizzati i principali componenti della scena: 
+        </p>
+            <ul>
+                <li> <strong>iMac:</strong> target del drop dei CD e superficie cliccabile per direzionare il pesce;</li>
+                <li> <strong>Tastiera: cliccabile per espellere il pesce attivo;</strong></li>
+                <li> <strong>Mouse: cliccabile per accendere/spegnere la luce dell'acquario;</strong></li>
+                <li> <strong>CD interattivi:</strong> ognuno associato a un pesce e ad una traccia audio;</li>
+                <li> <strong>Modelli dei pesci;</strong></li>
+                <li> <strong>Lava Lamp:</strong> oggetto animato che contribuisce all'atmosfera della scena;</li>
+            </ul>
+        <p>
+            Le dimensioni dell'acquario vengono ricavate automaticamente dal bounding box della mesh dell'acqua presente nel modello, permettendo di definire in modo 
+            dinamico l'area di nuoto dei pesci senza utilizzare coordinate fissate manualmente.
+        </p>
+   </section>
+
+    <!-- 3 -->
+    <section id="pesci">
+        <h2>3. Movimento dei Pesci e Animazioni</h2>
+        
+        <h3>Implementazione del Movimento</h3>
+
+        <p>
+            Ogni pesce ha il proprio oggetto <code>FishState</code> che ne incapsula lo stato completo:
+            posizione, direzione, angolo sull'ellisse, mixer, audio e target del click.
+            Il comportamento di nuoto è implementato nella funzione <code>updateFish</code>:
+        </p>
+        <ol>
+            <li><strong>Nuoto ellittico libero:</strong> il pesce percorre una traiettoria ellittica con una lieve ondulazione verticale.</li>
+            <li><strong>Nuoto verso il target:</strong> il pesce si dirige verso il punto toccato sullo schermo.</li>
+            <li><strong>Sosta:</strong> raggiunto il target entro una soglia di arrivo (<code>ARRIVE_DIST</code>), il pesce rimane fermo per un tempo configurabile (<code>pauseDuration</code>) per
+            poi riprendere il nuoto libero.</li>
+        </ol>
+
+        <p>
+            Il percorso ellittico è definito in forma parametrica. La componente verticale utilizza una funzione sinusoidale con frequenza più alta rispetto alla componente orizzontale per creare 
+            un movimento più naturale <href section="riferimenti">[1]</href>.
+        </p>
+
+        <pre>
+fs.pos.set(
+    tank.centerX + Math.cos(angle) * tank.radiusX,
+    tank.centerY + Math.sin(angle * 1.8) * 0.025,
+    tank.centerZ + Math.sin(angle) * tank.radiusZ
+)</pre>
+    
+        <p>
+            Le variazioni di direzione vengono smussate con un'interpolazione lineare sul vettore direzione (<code>Vector3.lerp</code>), evitando rotazioni istantanee e conferendo al
+            pesce un movimento più naturale.
+        </p>
+
+        <p>
+            Al termine della sosta, l'angolo dell'ellisse viene risincronizzato con la posizione corrente tramite <code>Math.atan2</code>, evitando discontinuità nella traiettoria al 
+            momento del ripristino del nuoto libero. 
+        </p>
+
+        <h3>Quaternioni per la Rotazione</h3>
+        <p>
+            Le mesh dei pesci esportate da Blender presentano una rotazione nativa di +90° sull'asse X, dovuta alla differenza tra il sistema di coordinate di Blender (Z up) e quello di Three.js (Y up). 
+            Per correggere questa rotazione, viene applicata una rotazione iniziale di -90° sull'asse X utilizzando un quaternione <code>Q_NATIVE</code>, che viene combinato con il quaternione di 
+            orientamento <code>Q_YAW</code> attorno all'asse Y del mondo per allineare correttamente i pesci alla direzione di movimento <href section="riferimenti">[2]</href>.
+        </p>
+<pre>
+const Q_NATIVE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2)
+const Q_YAW    = new THREE.Quaternion()
+const WORLD_Y  = new THREE.Vector3(0, 1, 0)
+
+Q_YAW.setFromAxisAngle(WORLD_Y, Math.atan2(fs.dir.x, fs.dir.z) + fs.noseOffsetY)
+fs.group.quaternion.multiplyQuaternions(Q_YAW, Q_NATIVE)
+</pre>
+        <p>
+            La variabile <code>noseOffsetY</code> corregge il disallineamento tra l'inclinazione della mesh e la direzione del moto ed è specifica per ogni modello.
+        </p>
+
+        <h3>Animazioni</h3>
+        <p> 
+            Sia i modelli dei pesci che quello della lava lamp sono stati importati in Blender completi di animazioni scheletriche. In Three.js, ogni pesce ha un <code>AnimationMixer</code> 
+            dedicato che gestisce la riproduzione dell'animazione di nuoto, attivata quando il pesce viene inserito nell'iMac.
+        </p>
+
+<pre>
+for (const key of ['clown', 'blue']) {
+  fishStates[key].mixer = new THREE.AnimationMixer(root)
+  gltf.animations.forEach(clip => {
+    fishStates[key].mixer
+      .clipAction(clip)
+      .setLoop(THREE.LoopRepeat, Infinity)
+      .play()
+  })
+}
+</pre>
+
+<p>
+    Entrambi i mixer vengono aggiornati ad ogni frame, anche quando il pesce corrispondente non è attivo, in modo che quando viene inserito un CD l'animazione risulta essere già in corso.
+</p>
+
+    </section>
+
+    <!-- 4 -->
+    <section id="interazione">
+        <h2>4. Interazione Utente</h2>
+
+        <p>
+            L'interazione con la scena è basata su eventi di drag-and-drop e click, gestiti tramite <code>Raycaster</code> per identificare gli oggetti interagiti. 
+            I CD possono essere trascinati e rilasciati all'interno dell'iMac per attivare i pesci corrispondenti, mentre cliccando sulla tastiera si espelle il pesce attivo e cliccando sul mouse si accende/spegne la luce dell'acquario.
+        </p>
+
+        <p>
+            Il progetto implementa un listener <code>mousedown</code> manuale per i click sugli oggetti statici e <code>DragControls</code> di Three.js per il trascinamento dei CD. Per ruotare la camera e visualizzare la scena invece
+            vengono utilizzati gli <code>OrbitControls</code>, che sono disabilitati durante il drag dei CD per evitare conflitti di input. Un listener <code>mousemove</code> aggiorna continuamente le coordinate NDC del pointer per il 
+            raycasting nel <code>dragend</code>. 
+        </p>
+
+        <p>
+            Quando un CD viene droppato sull'iMac, <code>insertFish()</code> nasconde il CD, rende visibile il gruppo pesce, ne inizializza lo stato di nuoto e avvia la traccia audio. L'operazione inversa, <code>ejectFish()</code>, 
+            nasconde il pesce, interrompe l'audio e riporta il CD alla posizione e al quaternione iniziali salvati al caricamento. 
+        </p>
+        
+    </section>
+
+    <!-- 5 -->
+    <section id="illuminazione">
+        <h2>5. Illuminazione e Post-Processing</h2>
+
+        <p>La scena utilizza tre sorgenti luminose per creare un'atmosfera intima e suggestiva:</p>
+
+        <ol>
+            <li><strong>Luce puntiforme azzurra:</strong> posizionata al centro dell'iMac, simula l'illuminazione interna dell'acquario e contribuisce a creare un'atmosfera sottomarina.</li>
+            <li><strong>Luce puntiforme arancione:</strong> posizionata all'interno della lava lamp, emette una luce calda che contrasta con l'azzurro dell'acquario.</li>
+            <li><strong>Luce ambientale:</strong> fornisce un'illuminazione diffusa che ammorbidisce le ombre e garantisce una visibilità uniforme degli oggetti nella scena.</li>
+        </ol>   
+
+        <p> 
+            Alla luce dell'acquario è stato aggiunto un lieve <em>flicker</em>, ovvero un tremolio per simulare la rifrazione dell'acqua calcolato come la somma di due sinusoidi ad alta frequenza:
+        </p>
+<pre>
+    aquaLight.intensity = aquaLightOn
+  ? aquaBaseIntensity + Math.sin(t * 5.1) * 0.3
+                      + Math.sin(t * 2.7) * 0.15
+  : 0
+</pre>
+
+        <p>
+            Per esaltare gli effetti di luce e creare un'atmosfera più suggestiva, è stato applicato alla scena lo shader <em>Unreal Bloom</em>, che amplifica le aree luminose creando un alone luminoso intorno ad esse. 
+            Questo effetto è particolarmente evidente intorno alla luce dell'acquario e su tastiera e mouse, contribuendo a ricreare un'atmosfera acquatica.
+        </p>
+    </section>
+
+    <!-- 6 -->
+    <section id="riferimenti">
+
+        <h2>6. Riferimenti</h2>
+        <p>
+            <div id="ref1" class="reference">
+                [1]  Three.js Forum, "How to make the object have an elliptical trajectory?", <a href="https://discourse.threejs.org/t/how-to-make-the-object-have-an-elliptical-trajectory/20277" target="_blank">https://discourse.threejs.org/t/how-to-make-the-object-have-an-elliptical-trajectory/20277</a>
+            </div>
+            <div id="ref2" class="reference">
+                [2] Meta Horizon OS Developers, "Three.js Transforms & 3D Math", <a href="https://developers.meta.com/horizon/documentation/web/iwsdk-concept-three-basics-transforms-math/" target="_blank">https://developers.meta.com/horizon/documentation/web/iwsdk-concept-three-basics-transforms-math/</a>
+            </div>
+        </p>
+    </section>
+
+</body>
+
+</html>
